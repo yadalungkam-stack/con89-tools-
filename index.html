@@ -232,6 +232,9 @@ form.f{display:flex;flex-direction:column;gap:12px}
 #histTable tbody tr.hrow:hover td{background:var(--sunk)}
 #histTable tbody tr.hrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .tl-del{margin-left:auto}
+body.role-user .admin-only{display:none!important}
+.hdr-acts{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#roleBadge b{color:var(--ink)}
 .modal.drawer .sheet{transition:max-width .2s ease}
 .modal.drawer .sheet.wide{max-width:880px}
 .sheet:not(.wide) .timeline li.tl-more{display:none}
@@ -254,13 +257,14 @@ html{-webkit-text-size-adjust:100%}body{margin:0}img{max-width:100%}[hidden]{dis
         <p>บริษัท คอนสตรัคชั่น 89 จำกัด</p>
       </div>
     </div>
-    <button id="btnAddTool" class="btn primary">+ เพิ่มเครื่องมือ</button>
+    <div class="hdr-acts"><span id="roleBadge" class="meta"></span><a id="adminLink" class="btn sm ghost" hidden target="_top">ผู้ดูแลเข้าสู่ระบบ</a>
+    <button id="btnAddTool" class="btn primary admin-only">+ เพิ่มเครื่องมือ</button></div>
   </header>
 
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="board" aria-selected="true">สถานะเครื่องมือ</button>
-    <button class="tab" role="tab" data-tab="history" aria-selected="false">ประวัติการเบิก</button>
-    <button class="tab" role="tab" data-tab="month" aria-selected="false">สรุปรายเดือน</button>
+    <button class="tab admin-only" role="tab" data-tab="history" aria-selected="false">ประวัติการเบิก</button>
+    <button class="tab admin-only" role="tab" data-tab="month" aria-selected="false">สรุปรายเดือน</button>
   </nav>
 
   <div id="notice" class="notice" hidden></div>
@@ -422,6 +426,13 @@ function lastPerson(){ try { return localStorage.getItem('con89.person') || ''; 
 function rememberPerson(p){ try { localStorage.setItem('con89.person', p); } catch(e){} }
 
 let db = null, assets = null, canWrite = true;
+const IS_ADMIN = !(window.BOOT && BOOT.role === 'user');
+(function initRole(){
+  document.body.classList.toggle('role-user', !IS_ADMIN);
+  const B = window.BOOT || {};
+  if(!IS_ADMIN && B.adminUrl){ const a = document.getElementById('adminLink'); a.href = B.adminUrl; a.hidden = false; }
+  if(IS_ADMIN && B.role === 'admin') document.getElementById('roleBadge').innerHTML = 'ผู้ดูแล · <b>' + String(B.email || '').replace(/[<>&"]/g, '') + '</b>';
+})();
 let tools = [], moves = [];
 const ready = {tools:false, moves:false};
 const S = {tab:'board', filter:'all', q:'', cat:'', hq:'', hmonth:'', month: ymKey(new Date())};
@@ -524,6 +535,7 @@ async function write(fn, okMsg){
 
 /* ---------- render ---------- */
 function render(){
+  if(!IS_ADMIN && S.tab !== 'board') S.tab = 'board';
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab===S.tab)));
   $('#view-board').hidden = S.tab!=='board';
   $('#view-history').hidden = S.tab!=='history';
@@ -1081,7 +1093,7 @@ function detailSheet(t){
   const src = photoSrc(t);
   openSheet(`<h2>${esc(t.name)}</h2><p class="sub"><span class="tag">${esc(t.code)}</span> ${esc([t.category,t.brand].filter(Boolean).join(' · '))}</p>
     <div class="photo" data-photo-of="${t.id}">${src ? `<img src="${src}" alt="รูป ${esc(t.name)}" onerror="this.parentNode.textContent='โหลดรูปไม่ได้'">` : 'ยังไม่มีรูป'}</div>
-    ${assets && canWrite ? `<div class="photo-bar"><label class="btn sm" for="ph-${t.id}">${src?'เปลี่ยนรูป':'เพิ่มรูป'}</label>
+    ${assets && canWrite && IS_ADMIN ? `<div class="photo-bar"><label class="btn sm" for="ph-${t.id}">${src?'เปลี่ยนรูป':'เพิ่มรูป'}</label>
       <input id="ph-${t.id}" type="file" accept="image/*" data-photo-input="${t.id}"><span class="meta">ถ่ายจากมือถือหรือเลือกไฟล์ได้</span></div>` : ''}
     <dl class="dl"><dt>ตอนนี้</dt><dd>${now}</dd>${t.serial?`<dt>Serial</dt><dd>${esc(t.serial)}</dd>`:''}<dt>สภาพ</dt><dd>${COND[t.condition||'ok']}</dd>${t.note?`<dt>หมายเหตุ</dt><dd>${esc(t.note)}</dd>`:''}</dl>
     <div class="qrrow"><button class="qrmini" data-act="qrshow" data-id="${t.id}" aria-label="ขยาย QR">${qrSVG(t)}</button>
@@ -1090,7 +1102,7 @@ function detailSheet(t){
     ${steps.length ? `<ol class="timeline">${steps.join('')}<li><span class="dot home"></span><div><div class="t">ลงทะเบียนที่${esc(OFFICE)}</div><div class="d">${t.createdAt?fmtD(t.createdAt):''}</div></div></li></ol>` : '<p class="meta">ยังไม่เคยถูกเบิกออกจากออฟฟิศ</p>'}
     <div class="foot" style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
       <button class="btn" data-act="qr" data-id="${t.id}">ดาวน์โหลด QR</button>
-      ${canWrite&&db?`<button class="btn" data-act="editTool" data-id="${t.id}">แก้ไขข้อมูล</button>`:''}
+      ${canWrite&&db&&IS_ADMIN?`<button class="btn" data-act="editTool" data-id="${t.id}">แก้ไขข้อมูล</button>`:''}
       ${canWrite&&db ? (st.kind==='home'
         ? `<button class="btn primary" data-act="checkout" data-id="${t.id}">เบิก</button>`
         : `<button class="btn" data-act="transfer" data-id="${t.id}">ส่งต่อ</button><button class="btn primary" data-act="return" data-id="${t.id}">คืน</button>`)
@@ -1119,7 +1131,7 @@ document.addEventListener('click', e => {
       const tg = sh.querySelector('.tl-toggle'); if(tg && window.__tlLabel) tg.textContent = window.__tlLabel[w?1:0];
       sh.querySelectorAll('[data-act=tlExpand].xbtn').forEach(b => { b.textContent = w ? '⤡' : '⤢'; b.setAttribute('aria-label', w ? 'ย่อ' : 'ขยายดูไทม์ไลน์ทั้งหมด'); });
       break; }
-    case 'editTool': t && toolForm(t); break;
+    case 'editTool': IS_ADMIN && t && toolForm(t); break;
     case 'qr': t && downloadQR(t); break;
     case 'qrshow': t && qrSheet(t); break;
     case 'checkout': t && checkoutForm(t); break;
