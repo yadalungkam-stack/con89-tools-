@@ -41,6 +41,10 @@ button,input,select,textarea{font:inherit;color:inherit}
 .tagmark{width:46px;height:56px;background:var(--accent);color:var(--accent-ink);border-radius:6px 6px 10px 10px;position:relative;
   display:grid;place-items:end center;padding-bottom:8px;font-family:var(--f-display);font-weight:700;font-size:18px;flex:none}
 .tagmark::before{content:"";position:absolute;top:8px;left:50%;width:10px;height:10px;margin-left:-5px;border-radius:50%;background:var(--bg)}
+.logo{height:56px;width:auto;flex:none;display:block}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .logo{filter:invert(1)}}
+:root[data-theme="dark"] .logo{filter:invert(1)}
+@media (max-width:460px){.logo{height:44px}}
 .brand h1{font-size:26px;font-weight:700;line-height:1.15}
 .brand p{margin:2px 0 0;color:var(--muted);font-size:13.5px}
 
@@ -187,10 +191,10 @@ html{-webkit-text-size-adjust:100%}body{margin:0}img{max-width:100%}[hidden]{dis
 <div class="app">
   <header class="top">
     <div class="brand">
-      <div class="tagmark" aria-hidden="true">89</div>
+      <img class="logo" src="https://raw.githubusercontent.com/yadalungkam-stack/con89-tools-/main/con89-logo.png" alt="CON89 บริษัท คอนสตรัคชั่น 89 จำกัด" width="144" height="56">
       <div>
         <h1>ทะเบียนเครื่องมือ</h1>
-        <p>เครื่องมือประจำออฟฟิศ CON89 · ใครเบิก ไปไซต์ไหน ส่งต่อถึงไหน และคืนเมื่อไร</p>
+        <p>บริษัท คอนสตรัคชั่น 89 จำกัด · ใครเบิก ไปไซต์ไหน ส่งต่อถึงไหน และคืนเมื่อไร</p>
       </div>
     </div>
     <button id="btnAddTool" class="btn primary">+ เพิ่มเครื่องมือ</button>
