@@ -151,6 +151,7 @@ tbody tr:last-child td{border-bottom:0}
 .pdfpage .nm{color:#5D6672;font-size:11.5px}
 .pdfpage i{color:#1F5FBF;font-style:normal;font-size:11.5px}
 .pdfpage tfoot td{font-weight:700;background:#FFF4CC;border-top:2px solid #1B2027}
+.pdfpage .st-open{color:#1F5FBF}.pdfpage .st-ok{color:#23784A}
 .pdfpage .pdf-note{margin:10px 0 0;color:#5D6672;font-size:11px}
 .pdfpage .pdf-foot{position:absolute;left:48px;right:48px;bottom:24px;text-align:right;color:#5D6672;font-size:11px}
 .nowrap{white-space:nowrap}
@@ -660,9 +661,24 @@ function monthOptions(){
   return [...set].sort().reverse();
 }
 
+function chainOpenMap(){
+  const map = new Map(), byTool = {};
+  moves.forEach(m => (byTool[m.toolId] ||= []).push(m));
+  for(const list of Object.values(byTool)){
+    list.sort((a,b)=> a.outAt<b.outAt?-1:a.outAt>b.outAt?1:0);
+    let chain = [];
+    const flush = () => { if(!chain.length) return; const last = chain[chain.length-1];
+      const open = !last.backAt || last.endType==='transferred'; chain.forEach(x => map.set(x.id, open)); chain = []; };
+    for(const m of list){ if(!m.fromSite) flush(); chain.push(m); }
+    flush();
+  }
+  return map;
+}
+let _chainCache = {src:null, map:null};
+function chainOpen(m){ if(_chainCache.src !== moves) _chainCache = {src:moves, map:chainOpenMap()}; return !!_chainCache.map.get(m.id); }
 function moveStatus(m){
   if(!m.backAt){ const late = m.dueAt && Date.now() > dueEnd(m.dueAt).getTime(); return {pill:`<span class="pill ${late?'late':'out'}">${late?'เกินกำหนด':'ยังไม่คืน'}</span>`, dot:'now'}; }
-  if(m.endType==='transferred') return {pill:'<span class="pill out">ส่งต่อแล้ว</span>', dot:'xfer'};
+  if(m.endType==='transferred') return chainOpen(m) ? {pill:'<span class="pill out">ส่งต่อแล้ว · ยังไม่คืนออฟฟิศ</span>', dot:'xfer'} : {pill:'<span class="pill out">ส่งต่อแล้ว</span>', dot:'xfer'};
   const late = m.dueAt && new Date(m.backAt) > dueEnd(m.dueAt);
   return {pill:`<span class="pill ${late?'warn':'ok'}">${late?'คืนช้า':'คืนแล้ว'}</span>`, dot:'home'};
 }
@@ -763,7 +779,7 @@ function monthStats(key){
     const st = bySite[m.site] ||= {name:m.site, times:0, days:0, tools:new Set()};
     const ck = m.toolId + '\u0001' + m.person + '\u0001' + m.site;
     const c = byCombo[ck] ||= {code:m.toolCode, name:m.toolName, person:m.person, site:m.site, times:0, days:0, open:false};
-    if(!m.backAt) c.open = true;
+    if(chainOpen(m)) c.open = true;
     if(startsIn){ t.times++; p.times++; st.times++; c.times++; }
     t.days += ov; p.days += ov; st.days += ov; c.days += ov; p.tools.add(m.toolId); st.tools.add(m.toolId);
   }
@@ -811,9 +827,9 @@ function renderMonth(){
   body.innerHTML = `
     <div class="kpis">
       <div class="kpi"><div class="k">เบิกออกจากออฟฟิศ</div><div class="v">${M.checkouts}<span class="u">ครั้ง</span></div></div>
-      <div class="kpi"><div class="k">คืนเข้าออฟฟิศ</div><div class="v">${M.returns}<span class="u">ครั้ง${M.lateReturns?` · ช้า ${M.lateReturns}`:''}</span></div></div>
+      <div class="kpi"><div class="k">ส่งคืน</div><div class="v">${M.returns}<span class="u">ครั้ง${M.lateReturns?` · ช้า ${M.lateReturns}`:''}</span></div></div>
       <div class="kpi"><div class="k">ส่งต่อระหว่างไซต์</div><div class="v">${M.transfers}<span class="u">ครั้ง</span></div></div>
-      <div class="kpi"><div class="k">เครื่องมือ-วัน นอกออฟฟิศ</div><div class="v">${n1(M.toolDays)}<span class="u">วัน · ใช้งาน ${n1(util)}%</span></div></div>
+      <div class="kpi"><div class="k">จำนวนวันยืม</div><div class="v">${n1(M.toolDays)}<span class="u">วัน</span></div></div>
     </div>
     <div class="panel chart"><h3>จำนวนเครื่องมือที่อยู่นอกออฟฟิศ รายวัน</h3>
       ${M.inMonth.length ? `<div class="scroll">${chartSVG(M.daily, M.isCurrent)}</div>` : '<p class="meta">ไม่มีเครื่องมือออกนอกออฟฟิศในเดือนนี้</p>'}
@@ -826,12 +842,12 @@ function tableSummary(M){
   let prev = null;
   const body = M.rows.map(r => { const first = r.code !== prev; prev = r.code;
     return `<tr class="${first?'grp':''}"><td>${first ? `<span class="tag">${esc(r.code)}</span><div class="meta">${esc(r.name)}</div>` : ''}</td>
-      <td>${esc(r.person)}</td><td>${esc(r.site)}${r.open?' <span class="pill out">ยังไม่คืน</span>':''}</td>
-      <td class="n">${r.times}</td><td class="n">${n1(r.days)}</td></tr>`; }).join('');
+      <td>${esc(r.person)}</td><td>${esc(r.site)}</td>
+      <td class="n">${r.times}</td><td class="n">${n1(r.days)}</td><td>${r.open?'<span class="pill out">ยังไม่คืน</span>':'<span class="pill ok">คืนแล้ว</span>'}</td></tr>`; }).join('');
   const T = M.rows.reduce((a,r)=>({times:a.times+r.times, days:a.days+r.days}), {times:0, days:0});
   const nTools = new Set(M.rows.map(r=>r.code)).size;
-  return `<div class="scroll"><table class="sumtbl"><thead><tr><th>รายการเครื่องมือ</th><th>ผู้ยืม</th><th>ไซต์งาน</th><th class="n">จำนวนครั้งการยืม</th><th class="n">จำนวนวันการยืม</th></tr></thead><tbody>${body}</tbody>
-    <tfoot><tr><td>รวม ${nTools} รายการ</td><td>${M.people.length} คน</td><td>${M.sites.length} ไซต์</td><td class="n">${T.times}</td><td class="n">${n1(T.days)}</td></tr></tfoot></table></div>
+  return `<div class="scroll"><table class="sumtbl"><thead><tr><th>รายการเครื่องมือ</th><th>ผู้ยืม</th><th>ไซต์งาน</th><th class="n">จำนวนครั้งการยืม</th><th class="n">จำนวนวันการยืม</th><th>สถานะ</th></tr></thead><tbody>${body}</tbody>
+    <tfoot><tr><td>รวม ${nTools} รายการ</td><td>${M.people.length} คน</td><td>${M.sites.length} ไซต์</td><td class="n">${T.times}</td><td class="n">${n1(T.days)}</td><td>${M.rows.some(r=>r.open) ? 'ยังไม่คืน ' + M.rows.filter(r=>r.open).length : 'คืนครบ'}</td></tr></tfoot></table></div>
     <p class="meta" style="margin:0">แสดงเฉพาะเครื่องมือที่ถูกยืมในเดือนนี้ · จำนวนวันนับเฉพาะช่วงที่อยู่ในเดือนนี้</p>`;
 }
 function tableTools(M){
@@ -865,12 +881,12 @@ async function exportPdf(){
     const now = new Date();
     const head = `<div class="pdf-head">${logo ? `<img src="${logo.src}" alt="" crossorigin="anonymous">` : ''}<div><h1>รายงานการยืมเครื่องมือ</h1>
       <p>บริษัท คอนสตรัคชั่น 89 จำกัด · ประจำเดือน <b>${esc(monthLabel(S.month))}</b></p></div></div>`;
-    const kpi = `<div class="pdf-kpi"><div><span>เบิกออก</span><b>${M.checkouts}</b> ครั้ง</div><div><span>คืนเข้าออฟฟิศ</span><b>${M.returns}</b> ครั้ง</div>
-      <div><span>ส่งต่อระหว่างไซต์</span><b>${M.transfers}</b> ครั้ง</div><div><span>เครื่องมือ-วัน นอกออฟฟิศ</span><b>${n1(M.toolDays)}</b> วัน</div></div>`;
-    const thead = `<thead><tr><th style="width:30%">รายการเครื่องมือ</th><th>ผู้ยืม</th><th>ไซต์งาน</th><th class="n">จำนวนครั้งการยืม</th><th class="n">จำนวนวันการยืม</th></tr></thead>`;
+    const kpi = `<div class="pdf-kpi"><div><span>เบิกออกจากออฟฟิศ</span><b>${M.checkouts}</b> ครั้ง</div><div><span>ส่งคืน</span><b>${M.returns}</b> ครั้ง</div>
+      <div><span>ส่งต่อระหว่างไซต์</span><b>${M.transfers}</b> ครั้ง</div><div><span>จำนวนวันยืม</span><b>${n1(M.toolDays)}</b> วัน</div></div>`;
+    const thead = `<thead><tr><th style="width:30%">รายการเครื่องมือ</th><th>ผู้ยืม</th><th>ไซต์งาน</th><th class="n">จำนวนครั้งการยืม</th><th class="n">จำนวนวันการยืม</th><th>สถานะ</th></tr></thead>`;
     const rowHTML = (r, first) => `<tr class="${first?'grp':''}"><td>${first ? `<b class="code">${esc(r.code)}</b><div class="nm">${esc(r.name)}</div>` : ''}</td>
-      <td>${esc(r.person)}</td><td>${esc(r.site)}${r.open?' <i>(ยังไม่คืน)</i>':''}</td><td class="n">${r.times}</td><td class="n">${n1(r.days)}</td></tr>`;
-    const tfoot = `<tfoot><tr><td>รวม ${new Set(M.rows.map(r=>r.code)).size} รายการ</td><td>${M.people.length} คน</td><td>${M.sites.length} ไซต์</td><td class="n">${T.times}</td><td class="n">${n1(T.days)}</td></tr></tfoot>`;
+      <td>${esc(r.person)}</td><td>${esc(r.site)}</td><td class="n">${r.times}</td><td class="n">${n1(r.days)}</td><td>${r.open?'<b class="st-open">ยังไม่คืน</b>':'<b class="st-ok">คืนแล้ว</b>'}</td></tr>`;
+    const tfoot = `<tfoot><tr><td>รวม ${new Set(M.rows.map(r=>r.code)).size} รายการ</td><td>${M.people.length} คน</td><td>${M.sites.length} ไซต์</td><td class="n">${T.times}</td><td class="n">${n1(T.days)}</td><td>${M.rows.some(r=>r.open) ? 'ยังไม่คืน ' + M.rows.filter(r=>r.open).length : 'คืนครบ'}</td></tr></tfoot>`;
     const note = `<p class="pdf-note">แสดงเฉพาะเครื่องมือที่ถูกยืมในเดือนนี้ · จำนวนวันนับเฉพาะช่วงที่อยู่ในเดือนนี้ · พิมพ์เมื่อ ${fmtDT(now.toISOString())}</p>`;
     document.body.appendChild(host);
     // measure
@@ -914,11 +930,11 @@ async function downloadCsv(){
   const r1 = x => Math.round(x*10)/10;
   const lines = [];
   lines.push([q('สรุปการใช้เครื่องมือ CON89'), q(monthLabel(S.month))].join(','));
-  lines.push([q('เบิกออก (ครั้ง)'),M.checkouts].join(',')); lines.push([q('คืน (ครั้ง)'),M.returns].join(','));
-  lines.push([q('คืนช้า (ครั้ง)'),M.lateReturns].join(',')); lines.push([q('ส่งต่อระหว่างไซต์ (ครั้ง)'),M.transfers].join(','));
-  lines.push([q('เครื่องมือ-วัน นอกออฟฟิศ'),r1(M.toolDays)].join(','));
-  lines.push(''); lines.push(['รหัส','รายการเครื่องมือ','ผู้ยืม','ไซต์งาน','จำนวนครั้งการยืม','จำนวนวันการยืม'].map(q).join(','));
-  M.rows.forEach(r => lines.push([q(r.code),q(r.name),q(r.person),q(r.site),r.times,r1(r.days)].join(',')));
+  lines.push([q('เบิกออกจากออฟฟิศ (ครั้ง)'),M.checkouts].join(',')); lines.push([q('ส่งคืน (ครั้ง)'),M.returns].join(','));
+  lines.push([q('ส่งคืนช้า (ครั้ง)'),M.lateReturns].join(',')); lines.push([q('ส่งต่อระหว่างไซต์ (ครั้ง)'),M.transfers].join(','));
+  lines.push([q('จำนวนวันยืม'),r1(M.toolDays)].join(','));
+  lines.push(''); lines.push(['รหัส','รายการเครื่องมือ','ผู้ยืม','ไซต์งาน','จำนวนครั้งการยืม','จำนวนวันการยืม','สถานะ'].map(q).join(','));
+  M.rows.forEach(r => lines.push([q(r.code),q(r.name),q(r.person),q(r.site),r.times,r1(r.days),q(r.open?'ยังไม่คืน':'คืนแล้ว')].join(',')));
   lines.push(''); lines.push(['รหัส','เครื่องมือ','ผู้เบิก','จาก','ไซต์','วันออก','กำหนดคืน','วันสิ้นสุด','ผลลัพธ์','วัตถุประสงค์'].map(q).join(','));
   M.inMonth.slice().reverse().forEach(m => lines.push([m.toolCode,m.toolName,m.person,m.fromSite||OFFICE,m.site,fmtDT(m.outAt),m.dueAt?fmtD(m.dueAt):'',m.backAt?fmtDT(m.backAt):'',
     !m.backAt?'ยังไม่คืน':m.endType==='transferred'?'ส่งต่อ':'คืนแล้ว', m.purpose].map(q).join(',')));
