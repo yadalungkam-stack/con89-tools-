@@ -232,6 +232,11 @@ form.f{display:flex;flex-direction:column;gap:12px}
 #histTable tbody tr.hrow:hover td{background:var(--sunk)}
 #histTable tbody tr.hrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .tl-del{margin-left:auto}
+.hchk{width:18px;height:18px;accent-color:var(--accent);cursor:pointer;margin:2px 0 0;vertical-align:top}
+#histTable th.cb,#histTable td.cb{width:34px;padding-right:0}
+#histTable tbody tr.hrow.sel td{background:var(--accent-soft)}
+.selbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--accent-soft);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+.selbar .grow{flex:1;min-width:12ch}
 body.role-user .admin-only{display:none!important}
 .hdr-acts{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #roleBadge b{color:var(--ink)}
@@ -377,7 +382,8 @@ html{-webkit-text-size-adjust:100%}body{margin:0}img{max-width:100%}[hidden]{dis
   }
   const DB = {
     collection: collection,
-    doc: function (path) { const p = path.split('/'); return docRef(p[0], p[1]); }
+    doc: function (path) { const p = path.split('/'); return docRef(p[0], p[1]); },
+    deleteMany: function (paths) { return send(paths.map(function (pp) { const p = pp.split('/'); return { op: 'delete', table: p[0], id: p[1] }; })); }
   };
   const ASSETS = {
     upload: function (blob) {
@@ -694,6 +700,17 @@ function moveStatus(m){
   const late = m.dueAt && new Date(m.backAt) > dueEnd(m.dueAt);
   return {pill:`<span class="pill ${late?'warn':'ok'}">${late?'คืนช้า':'คืนแล้ว'}</span>`, dot:'home'};
 }
+let histRows = [];
+function selBar(rows){
+  if(!S.hsel || !S.hsel.size) return '';
+  const sel = rows.filter(r => S.hsel.has(r.id)); const n = sel.reduce((a,r)=> a + r.list.length, 0);
+  return `<div class="selbar"><span class="grow">เลือก <b>${sel.length}</b> เครื่องมือ · ประวัติ ${n} ครั้ง</span>
+    <button class="btn sm" data-act="hselClear">ยกเลิก</button><button class="btn sm danger" data-act="hselDel">ลบประวัติที่เลือก</button></div>`;
+}
+async function deleteMoves(ids){
+  if(db.deleteMany) return db.deleteMany(ids.map(id => 'moves/' + id));
+  for(let i=0; i<ids.length; i+=10) await Promise.all(ids.slice(i, i+10).map(id => db.doc('moves/' + id).delete()));
+}
 function renderHistory(){
   const sel = $('#hmonth');
   const html = `<option value="">ทุกเดือน</option>` + monthOptions().map(k=>`<option value="${k}" ${k===S.hmonth?'selected':''}>${monthLabel(k)}</option>`).join('');
@@ -713,12 +730,16 @@ function renderHistory(){
   });
   if(q) rows = rows.filter(r => r.list.some(m => [m.toolCode,m.toolName,m.person,m.site,m.fromSite,m.purpose].join(' ').toLowerCase().includes(q)));
   rows.sort((a,b)=> a.last.outAt<b.last.outAt?1:-1);
+  const canSel = canWrite && !!db;
+  if(!S.hsel) S.hsel = new Set();
+  const vis = new Set(rows.map(r => r.id)); [...S.hsel].forEach(id => { if(!vis.has(id)) S.hsel.delete(id); });
+  histRows = rows;
   if(!rows.length){ box.innerHTML = `<div class="empty"><p>${moves.length ? 'ไม่พบรายการที่ตรงกับตัวกรอง' : 'ยังไม่มีการเบิกเครื่องมือ เมื่อกด “เบิก” ที่แท็บสถานะเครื่องมือ รายการจะขึ้นที่นี่'}</p></div>`; return; }
-  box.innerHTML = `<table><thead><tr><th>เครื่องมือ</th><th>ผู้เบิกล่าสุด</th><th>เบิกล่าสุด</th><th>สิ้นสุด</th><th class="n">ครั้ง</th><th>สถานะ</th></tr></thead><tbody>` +
+  box.innerHTML = selBar(rows) + `<table><thead><tr>${canSel ? `<th class="cb"><input type="checkbox" class="hchk" data-hall="1" aria-label="เลือกทั้งหมด" ${rows.every(r => S.hsel.has(r.id)) ? 'checked' : ''}></th>` : ''}<th>เครื่องมือ</th><th>ผู้เบิกล่าสุด</th><th>เบิกล่าสุด</th><th>สิ้นสุด</th><th class="n">ครั้ง</th><th>สถานะ</th></tr></thead><tbody>` +
     rows.map(r => {
       const m = r.last, t = toolById(r.id), s = moveStatus(m);
-      return `<tr class="hrow" tabindex="0" data-act="hist" data-id="${esc(r.id)}" aria-label="ดูไทม์ไลน์ ${esc(m.toolCode)}">
-        <td><span class="tag">${esc(t ? t.code : m.toolCode)}</span><div class="meta">${esc(t ? t.name : m.toolName)}</div></td>
+      return `<tr class="hrow${S.hsel.has(r.id) ? ' sel' : ''}" tabindex="0" data-act="hist" data-id="${esc(r.id)}" aria-label="ดูไทม์ไลน์ ${esc(m.toolCode)}">
+        ${canSel ? `<td class="cb"><input type="checkbox" class="hchk" data-hsel="${esc(r.id)}" aria-label="เลือก ${esc(m.toolCode)}" ${S.hsel.has(r.id) ? 'checked' : ''}></td>` : ''}<td><span class="tag">${esc(t ? t.code : m.toolCode)}</span><div class="meta">${esc(t ? t.name : m.toolName)}</div></td>
         <td>${esc(m.person)}<div class="meta">ที่ ${esc(m.site)}</div></td>
         <td class="nowrap">${fmtD(m.outAt)}</td><td class="nowrap">${m.backAt?fmtD(m.backAt):'–'}</td>
         <td class="n">${r.list.length}</td><td>${s.pill}</td></tr>`;
@@ -1119,6 +1140,12 @@ function confirmSheet(title, text, label, fn){
 
 /* ---------- events ---------- */
 document.addEventListener('click', e => {
+  const hc = e.target.closest('.hchk');
+  if(hc){ if(!S.hsel) S.hsel = new Set();
+    if(hc.dataset.hall) histRows.forEach(r => hc.checked ? S.hsel.add(r.id) : S.hsel.delete(r.id));
+    else hc.checked ? S.hsel.add(hc.dataset.hsel) : S.hsel.delete(hc.dataset.hsel);
+    renderHistory(); return; }
+  const cbt = e.target.closest('#histTable td.cb, #histTable th.cb'); if(cbt){ const i = cbt.querySelector('.hchk'); i && i.click(); return; }
   const tab = e.target.closest('.tab'); if(tab){ S.tab = tab.dataset.tab; render(); return; }
   const stat = e.target.closest('.stat'); if(stat){ S.filter = stat.dataset.filter; render(); return; }
   const a = e.target.closest('[data-act]'); if(!a) return;
@@ -1128,6 +1155,14 @@ document.addEventListener('click', e => {
     case 'addTool': toolForm(); break;
     case 'detail': t && detailSheet(t); break;
     case 'hist': historyDrawer(a.dataset.id); break;
+    case 'hselClear': S.hsel && S.hsel.clear(); renderHistory(); break;
+    case 'hselDel': {
+      const sel = histRows.filter(r => S.hsel && S.hsel.has(r.id)); const ms = sel.flatMap(r => r.list); if(!ms.length) break;
+      const openN = ms.filter(m => !m.backAt).length;
+      confirmSheet('ลบประวัติการเบิก', `ลบประวัติ <b>${ms.length}</b> ครั้ง ของ ${sel.length} เครื่องมือ${S.hmonth ? ` (เฉพาะเดือน ${monthLabel(S.hmonth)})` : ''}? ลบแล้วกู้คืนไม่ได้${openN ? `<br><b>มี ${openN} รายการที่ยังไม่คืน</b> ลบแล้วเครื่องมือนั้นจะกลับเป็นสถานะ “อยู่ออฟฟิศ”` : ''}`, 'ลบประวัติ', async () => {
+        const ok = await write(() => deleteMoves(ms.map(m => m.id)), `ลบประวัติ ${ms.length} ครั้งแล้ว`);
+        if(ok){ S.hsel.clear(); renderHistory(); } return ok; });
+      break; }
     case 'tlExpand': { const sh = $('#sheet'); const w = sh.classList.toggle('wide');
       const tg = sh.querySelector('.tl-toggle'); if(tg && window.__tlLabel) tg.textContent = window.__tlLabel[w?1:0];
       sh.querySelectorAll('[data-act=tlExpand].xbtn').forEach(b => { b.textContent = w ? '⤡' : '⤢'; b.setAttribute('aria-label', w ? 'ย่อ' : 'ขยายดูไทม์ไลน์ทั้งหมด'); });
