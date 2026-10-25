@@ -181,6 +181,38 @@ form.f{display:flex;flex-direction:column;gap:12px}
   padding:10px 16px;border-radius:8px;font-size:14px;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 .toast.bad{background:var(--late);color:#fff}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(12px);opacity:.6}}}
+.modal.drawer{align-items:stretch;justify-content:flex-end;padding:0}
+.modal.drawer .sheet{max-width:460px;height:100%;max-height:none;border-radius:16px 0 0 16px;padding:0 0 max(20px,env(safe-area-inset-bottom,0px));gap:0}
+@media (max-width:520px){.modal.drawer .sheet{max-width:none;border-radius:0}}
+@media (prefers-reduced-motion:no-preference){.modal.drawer .sheet{animation:slidein .2s ease-out}@keyframes slidein{from{transform:translateX(28px);opacity:.6}}}
+.drawer-head{position:sticky;top:0;z-index:2;background:var(--surface);display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid var(--line);
+  padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 12px 20px}
+.drawer-head .ttl{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.drawer-head h2{font-size:20px;overflow-wrap:anywhere}
+.drawer-head .sub{margin:0;color:var(--muted);font-size:13.5px}
+.xbtn{all:unset;cursor:pointer;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;font-size:18px;color:var(--muted);flex:none}
+.xbtn:hover{background:var(--sunk);color:var(--ink)}
+.xbtn:focus-visible{outline:2px solid var(--accent)}
+.drawer-body{padding:16px max(20px,env(safe-area-inset-right,0px)) 0 20px;display:flex;flex-direction:column;gap:14px}
+.drawer-acts{display:flex;gap:8px;flex-wrap:wrap}
+.drawer-body h3{font-size:16px;margin:6px 0 0}
+.sumline{margin:-6px 0 0;font-size:13.5px;color:var(--muted)}
+.tl-card{display:flex;flex-direction:column;gap:3px;min-width:0}
+.tl-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tl-top b{font-size:15px}
+.tl-site{font-size:14px;overflow-wrap:anywhere}
+.tl-dates{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.timeline .dot.xfer{box-shadow:0 0 0 2px var(--muted);background:var(--muted)}
+#histTable tbody tr.hrow{cursor:pointer}
+#histTable tbody tr.hrow:hover td{background:var(--sunk)}
+#histTable tbody tr.hrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tl-del{margin-left:auto}
+.modal.drawer .sheet{transition:max-width .2s ease}
+.modal.drawer .sheet.wide{max-width:880px}
+.sheet:not(.wide) .timeline li.tl-more{display:none}
+.tl-toggle{align-self:flex-start}
+.sheet.wide .timeline{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));column-gap:24px}
+@media (max-width:760px){.sheet.wide .timeline{display:flex}}
 
 /* base reset (HtmlService has none) */
 html{-webkit-text-size-adjust:100%}body{margin:0}img{max-width:100%}[hidden]{display:none!important}
@@ -603,6 +635,12 @@ function monthOptions(){
   return [...set].sort().reverse();
 }
 
+function moveStatus(m){
+  if(!m.backAt){ const late = m.dueAt && Date.now() > dueEnd(m.dueAt).getTime(); return {pill:`<span class="pill ${late?'late':'out'}">${late?'เกินกำหนด':'ยังไม่คืน'}</span>`, dot:'now'}; }
+  if(m.endType==='transferred') return {pill:'<span class="pill out">ส่งต่อแล้ว</span>', dot:'xfer'};
+  const late = m.dueAt && new Date(m.backAt) > dueEnd(m.dueAt);
+  return {pill:`<span class="pill ${late?'warn':'ok'}">${late?'คืนช้า':'คืนแล้ว'}</span>`, dot:'home'};
+}
 function renderHistory(){
   const sel = $('#hmonth');
   const html = `<option value="">ทุกเดือน</option>` + monthOptions().map(k=>`<option value="${k}" ${k===S.hmonth?'selected':''}>${monthLabel(k)}</option>`).join('');
@@ -610,29 +648,72 @@ function renderHistory(){
   const box = $('#histTable');
   if(!ready.moves){ box.innerHTML = '<div class="empty"><p>กำลังโหลด…</p></div>'; return; }
   const q = S.hq.trim().toLowerCase();
-  const rows = moves.filter(m => {
-    if(S.hmonth){ const a = ymKey(new Date(m.outAt)), b = m.backAt ? ymKey(new Date(m.backAt)) : null; if(a!==S.hmonth && b!==S.hmonth) return false; }
-    if(q){ const hay = [m.toolCode,m.toolName,m.person,m.site,m.fromSite,m.purpose].join(' ').toLowerCase(); if(!hay.includes(q)) return false; }
-    return true;
+  const groups = new Map();
+  for(const m of moves){
+    if(S.hmonth){ const a = ymKey(new Date(m.outAt)), b = m.backAt ? ymKey(new Date(m.backAt)) : null; if(a!==S.hmonth && b!==S.hmonth) continue; }
+    if(!groups.has(m.toolId)) groups.set(m.toolId, []);
+    groups.get(m.toolId).push(m);
+  }
+  let rows = [...groups.entries()].map(([id, list]) => {
+    list.sort((a,b)=> a.outAt<b.outAt?1:-1);
+    return {id, list, last:list[0], people:new Set(list.map(m=>m.person)).size};
   });
+  if(q) rows = rows.filter(r => r.list.some(m => [m.toolCode,m.toolName,m.person,m.site,m.fromSite,m.purpose].join(' ').toLowerCase().includes(q)));
+  rows.sort((a,b)=> a.last.outAt<b.last.outAt?1:-1);
   if(!rows.length){ box.innerHTML = `<div class="empty"><p>${moves.length ? 'ไม่พบรายการที่ตรงกับตัวกรอง' : 'ยังไม่มีการเบิกเครื่องมือ เมื่อกด “เบิก” ที่แท็บสถานะเครื่องมือ รายการจะขึ้นที่นี่'}</p></div>`; return; }
-  box.innerHTML = `<table><thead><tr><th>เครื่องมือ</th><th>ผู้เบิก</th><th>เส้นทาง</th><th>ออก</th><th>สิ้นสุด</th><th class="n">วัน</th><th>สถานะ</th><th></th></tr></thead><tbody>` +
-    rows.map(m => {
-      const end = m.backAt ? new Date(m.backAt) : new Date();
-      const d = daysBetween(new Date(m.outAt), end);
-      let st;
-      if(!m.backAt){ const late = m.dueAt && Date.now() > dueEnd(m.dueAt).getTime(); st = `<span class="pill ${late?'late':'out'}">${late?'เกินกำหนด':'ยังไม่คืน'}</span>`; }
-      else if(m.endType==='transferred') st = `<span class="pill out">ส่งต่อแล้ว</span>`;
-      else { const late = m.dueAt && new Date(m.backAt) > dueEnd(m.dueAt); st = `<span class="pill ${late?'warn':'ok'}">${late?'คืนช้า':'คืนแล้ว'}</span>`; }
-      return `<tr><td><span class="tag">${esc(m.toolCode)}</span><div class="meta">${esc(m.toolName)}</div></td>
-        <td>${esc(m.person)}${m.purpose?`<div class="meta">${esc(m.purpose)}</div>`:''}</td>
-        <td>${esc(m.fromSite||OFFICE)} → <b>${esc(m.site)}</b></td>
+  box.innerHTML = `<table><thead><tr><th>เครื่องมือ</th><th>ผู้เบิกล่าสุด</th><th>เบิกล่าสุด</th><th>สิ้นสุด</th><th class="n">ครั้ง</th><th>สถานะ</th></tr></thead><tbody>` +
+    rows.map(r => {
+      const m = r.last, t = toolById(r.id), s = moveStatus(m);
+      return `<tr class="hrow" tabindex="0" data-act="hist" data-id="${esc(r.id)}" aria-label="ดูไทม์ไลน์ ${esc(m.toolCode)}">
+        <td><span class="tag">${esc(t ? t.code : m.toolCode)}</span><div class="meta">${esc(t ? t.name : m.toolName)}</div></td>
+        <td>${esc(m.person)}<div class="meta">ที่ ${esc(m.site)}</div></td>
         <td class="nowrap">${fmtD(m.outAt)}</td><td class="nowrap">${m.backAt?fmtD(m.backAt):'–'}</td>
-        <td class="n">${n1(d)}</td><td>${st}${m.returnCond&&m.returnCond!=='ok'?` <span class="pill warn">${COND[m.returnCond]}</span>`:''}</td>
-        <td>${canWrite&&db?`<button class="btn sm ghost" data-act="delMove" data-id="${m.id}" aria-label="ลบรายการ">ลบ</button>`:''}</td></tr>`;
-    }).join('') + '</tbody></table>';
+        <td class="n">${r.list.length}</td><td>${s.pill}</td></tr>`;
+    }).join('') + '</tbody></table>' +
+    `<p class="meta" style="margin:10px 0 0">แตะที่เครื่องมือเพื่อดูไทม์ไลน์การเบิกทั้งหมด</p>`;
 }
 
+function historyDrawer(id){
+  const hist = moves.filter(m => m.toolId===id).slice().sort((a,b)=> a.outAt<b.outAt?1:-1);
+  const t = toolById(id), lm = hist[0];
+  if(!t && !lm) return;
+  const code = t ? t.code : lm.toolCode, name = t ? t.name : lm.toolName;
+  const st = t ? toolState(t) : {kind:'gone'};
+  const people = new Set(hist.map(m => m.person)).size;
+  const totalDays = hist.reduce((s,m)=> s + daysBetween(new Date(m.outAt), m.backAt ? new Date(m.backAt) : new Date()), 0);
+  const src = t ? photoSrc(t) : '';
+  const statusPill = st.kind==='gone' ? '<span class="pill warn">ลบออกจากทะเบียนแล้ว</span>'
+    : st.kind==='home' ? `<span class="pill ok">อยู่ออฟฟิศ</span> ${esc(OFFICE)}` : `<span class="pill ${st.kind}">${st.kind==='late'?'เกินกำหนด':'ถูกเบิก'}</span> ที่ ${esc(st.m.site)}`;
+  const SHOW = 3;
+  const items = hist.map((m, idx) => {
+    const s = moveStatus(m);
+    const days = n1(daysBetween(new Date(m.outAt), m.backAt ? new Date(m.backAt) : new Date()));
+    const cond = m.returnCond && m.returnCond!=='ok' ? 'สภาพตอนคืน: ' + COND[m.returnCond] : '';
+    return `<li class="${idx>=SHOW?'tl-more':''}"><span class="dot ${s.dot}"></span><div class="tl-card">
+      <div class="tl-top"><span class="meta">#${hist.length-idx}</span><b>${esc(m.person)}</b>${s.pill}${canWrite&&db?`<button class="btn sm ghost tl-del" data-act="delMove" data-id="${m.id}" aria-label="ลบรายการนี้">ลบ</button>`:''}</div>
+      <div class="tl-site">${m.fromSite ? `รับต่อจาก ${esc(m.fromSite)} → ` : ''}<b>${esc(m.site)}</b>${m.purpose ? ` · ${esc(m.purpose)}` : ''}</div>
+      <div class="tl-dates">เบิก ${fmtDT(m.outAt)}${m.backAt ? ` → ${m.endType==='transferred'?'ส่งต่อ':'คืน'} ${fmtDT(m.backAt)}` : ''} · ${days} วัน${m.dueAt ? ` · กำหนดคืน ${fmtD(m.dueAt)}` : ''}</div>
+      ${cond || m.returnNote ? `<div class="tl-dates">${[cond, m.returnNote ? esc(m.returnNote) : ''].filter(Boolean).join(' · ')}</div>` : ''}
+    </div></li>`;
+  }).join('');
+  const acts = t && canWrite && db ? (st.kind==='home'
+    ? `<button class="btn primary" data-act="checkout" data-id="${t.id}">เบิก</button>`
+    : `<button class="btn primary" data-act="return" data-id="${t.id}">คืน</button><button class="btn" data-act="transfer" data-id="${t.id}">ส่งต่อ</button>`) : '';
+  openSheet(`<div class="drawer-head"><div class="ttl"><span class="tag">${esc(code)}</span><h2>${esc(name)}</h2>
+      <p class="sub">${esc(t ? ([t.category,t.brand].filter(Boolean).join(' · ') || '—') : '—')}</p></div>
+      <button class="xbtn" data-act="tlExpand" aria-label="ขยายดูไทม์ไลน์ทั้งหมด" title="ขยาย">⤢</button><button class="xbtn" data-act="close" aria-label="ปิด">✕</button></div>
+    <div class="drawer-body">
+    ${t ? `<div class="photo">${src ? `<img src="${src}" alt="รูป ${esc(name)}" onerror="this.parentNode.textContent='โหลดรูปไม่ได้'">` : 'ยังไม่มีรูป'}</div>` : ''}
+    <dl class="dl"><dt>สถานะ</dt><dd>${statusPill}</dd>
+      <dt>${st.kind==='out'||st.kind==='late' ? 'ผู้เบิก' : 'ผู้เบิกล่าสุด'}</dt><dd>${lm ? esc(lm.person) + (lm.backAt ? ` · ${lm.endType==='transferred'?'ส่งต่อ':'คืน'} ${fmtD(lm.backAt)}` : ` · ออก ${fmtD(lm.outAt)}`) : '—'}</dd>
+      ${t && t.serial?`<dt>Serial</dt><dd>${esc(t.serial)}</dd>`:''}${t?`<dt>สภาพ</dt><dd>${COND[t.condition||'ok']}</dd>`:''}</dl>
+    ${acts ? `<div class="drawer-acts">${acts}</div>` : ''}
+    <h3>ไทม์ไลน์การเบิก</h3>
+    ${hist.length ? `<p class="sumline">ทั้งหมด ${hist.length} ครั้ง · ผู้เบิก ${people} คน · รวม ${n1(totalDays)} วัน</p><ol class="timeline">${items}</ol>
+      <button class="btn sm tl-toggle" data-act="tlExpand">${hist.length>SHOW ? `ดูไทม์ไลน์ทั้งหมด ${hist.length} รายการ ⤢` : 'ขยายมุมมองไทม์ไลน์ ⤢'}</button>` : '<p class="meta" style="margin:0">ยังไม่เคยถูกเบิกออกจากออฟฟิศ</p>'}
+    </div>`, null, {drawer:true});
+  window.__tlLabel = hist.length>SHOW ? [`ดูไทม์ไลน์ทั้งหมด ${hist.length} รายการ ⤢`, `ย่อเหลือ ${SHOW} รายการล่าสุด ⤡`] : ['ขยายมุมมองไทม์ไลน์ ⤢', 'ย่อมุมมอง ⤡'];
+}
 /* ---------- monthly summary ---------- */
 function monthStats(key){
   const [y,mo] = key.split('-').map(Number);
@@ -756,8 +837,9 @@ async function downloadCsv(){
 
 /* ---------- modal ---------- */
 let lastFocus = null;
-function openSheet(html, onSubmit){
+function openSheet(html, onSubmit, opts){
   lastFocus = document.activeElement;
+  $('#modal').classList.toggle('drawer', !!(opts && opts.drawer));
   $('#sheet').innerHTML = html; $('#modal').hidden = false;
   const f = $('#sheet form');
   if(f){
@@ -773,7 +855,7 @@ function openSheet(html, onSubmit){
     const first = f.querySelector('input,select,textarea'); first && first.focus();
   } else { const b = $('#sheet button'); b && b.focus(); }
 }
-function closeSheet(){ $('#modal').hidden = true; $('#sheet').innerHTML = ''; lastFocus && lastFocus.focus && lastFocus.focus(); }
+function closeSheet(){ $('#modal').hidden = true; $('#modal').classList.remove('drawer'); $('#sheet').classList.remove('wide'); $('#sheet').innerHTML = ''; lastFocus && lastFocus.focus && lastFocus.focus(); }
 const foot = label => `<div class="err" aria-live="polite"></div><div class="foot"><button type="button" class="btn" data-act="close">ยกเลิก</button><button type="submit" class="btn primary">${label}</button></div>`;
 
 function toolForm(t){
@@ -921,6 +1003,11 @@ document.addEventListener('click', e => {
     case 'close': closeSheet(); break;
     case 'addTool': toolForm(); break;
     case 'detail': t && detailSheet(t); break;
+    case 'hist': historyDrawer(a.dataset.id); break;
+    case 'tlExpand': { const sh = $('#sheet'); const w = sh.classList.toggle('wide');
+      const tg = sh.querySelector('.tl-toggle'); if(tg && window.__tlLabel) tg.textContent = window.__tlLabel[w?1:0];
+      sh.querySelectorAll('[data-act=tlExpand].xbtn').forEach(b => { b.textContent = w ? '⤡' : '⤢'; b.setAttribute('aria-label', w ? 'ย่อ' : 'ขยายดูไทม์ไลน์ทั้งหมด'); });
+      break; }
     case 'editTool': t && toolForm(t); break;
     case 'qr': t && downloadQR(t); break;
     case 'qrshow': t && qrSheet(t); break;
@@ -945,7 +1032,8 @@ $('#modal').addEventListener('change', e => {
   const t = toolById(id); const f = e.target.files && e.target.files[0]; e.target.value = '';
   if(t && f) setPhoto(t, f);
 });
-document.addEventListener('keydown', e => { if(e.key==='Escape' && !$('#modal').hidden) closeSheet(); });
+document.addEventListener('keydown', e => { if(e.key==='Escape' && !$('#modal').hidden) closeSheet();
+  else if((e.key==='Enter'||e.key===' ') && e.target.classList && e.target.classList.contains('hrow')){ e.preventDefault(); historyDrawer(e.target.dataset.id); } });
 $('#q').addEventListener('input', e => { S.q = e.target.value; renderBoard(); });
 $('#cat').addEventListener('change', e => { S.cat = e.target.value; renderBoard(); });
 $('#hq').addEventListener('input', e => { S.hq = e.target.value; renderHistory(); });
